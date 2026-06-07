@@ -4,6 +4,7 @@ import requests
 from weasyprint import HTML
 from pypdf import PdfWriter, PdfReader
 from jinja2 import Environment, FileSystemLoader
+from cryptography.fernet import Fernet
 
 def generate_invoice_pdf(invoice_data: dict, output_path: str):
     """
@@ -60,26 +61,33 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     # 2. Render main invoice PDF in memory
     pdf_bytes = HTML(string=html_out, base_url=base_dir).write_pdf()
     
-    # 3. Append payment.pdf using PyPDF with pdf found online. If not found, DO NOT USE anything.
-    payment_pdf_url = os.getenv('payment_pdf_url', '').strip()
-    
+    # 3. Unencrypt payment.enc with fernet_key
+    fernet_key = os.getenv('fernet_key', '').strip()
+    fernet = Fernet(fernet_key)
+
     writer = PdfWriter()
     
-    # Add invoice pages
+    # Add main invoice PDF pages
     invoice_reader = PdfReader(io.BytesIO(pdf_bytes))
     for page in invoice_reader.pages:
         writer.add_page(page)
+    
+    try:
+        try: # if cannot find the file, then error out with message
+            with open("../assets/payment.enc", "rb") as file:
+                decrypted_pdf = fernet.decrypt(file.read())
+                
+                # Add decrypted payment pages
+                payment_reader = PdfReader(io.BytesIO(decrypted_pdf))
+                for page in payment_reader.pages:
+                    writer.add_page(page)
+        except FileNotFoundError:
+            print("Error: payment.enc file not found in assets directory.")
+            return None
+    except Exception as e:
+        print(f"Error decrypting payment PDF: {e}")
+        return None
         
-    if payment_pdf_url:
-        try:
-            response = requests.get(payment_pdf_url, timeout=12)
-            response.raise_for_status()
-            payment_reader = PdfReader(io.BytesIO(response.content))
-            for page in payment_reader.pages:
-                writer.add_page(page)
-        except Exception as e:
-            print(f"Warning: Could not merge payment PDF from URL {payment_pdf_url}: {e}")
-
     # Write the final PDF to disk
     with open(output_path, "wb") as f_out:
         writer.write(f_out)

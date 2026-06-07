@@ -44,12 +44,19 @@ if SUPABASE_URL and SUPABASE_KEY:
 else:
     supabase = None
 
-def send_telegram_message(chat_id, text):
+def send_telegram_message(chat_id, text, parse_mode="HTML"):
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == 'your_telegram_bot_token_here':
         logger.warning("Telegram Bot Token is missing.")
         return
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text}
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode
+    }
+
     requests.post(url, json=payload)
 
 def send_telegram_document(chat_id, file_path):
@@ -139,7 +146,7 @@ def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source
     if supabase:
         try:
             with open(output_path, 'rb') as f:
-                supabase.storage.from_("invoices").upload(file_name, f)
+                supabase.storage.from_("invoices").upload(file_name, f, file_options={"content_type": "application/pdf"})
             public_url = supabase.storage.from_("invoices").get_public_url(file_name)
             finalize_invoice_record(record["id"] if record else None, file_name, public_url)
         except Exception as e:
@@ -242,8 +249,23 @@ def webhook():
             res = supabase.table("webhook_events").select("*").limit(5).order("received_at", desc=True).execute()
             events = res.data
             msg = "Recent Queue Activity:\n\n"
+            msg += "<pre>"
+            msg += f"{'SUMMARY':50} {'STATUS':10} {'USERNAME':20}\n"
+            msg += "-" * 80 + "\n"
+            n = 1
             for ev in events:
-                msg += f"- {ev['summary']} ({ev['status']})\n"
+                summary = ev.get("summary", "")
+                status = ev.get("status", "")
+                username = ev.get("username", "unknown")
+
+                if isinstance(summary, dict):
+                    summary = str(summary)
+
+                msg += f"{n}. {summary[:50]:50} {status[:10]:10} {username[:20]:20}\n"
+                n += 1
+
+            msg += "</pre>"
+
             send_telegram_message(chat_id, msg)
         else:
             send_telegram_message(chat_id, "Database not configured.")
@@ -257,6 +279,7 @@ def webhook():
     # 3. Handle State-based operations
     if current_state == "WAITING_FOR_INVOICE_JSON":
         try:
+            # this will change text example from as qwe: adss\nattn: aspppp to a json format like {"qwe": "adss", "attn": "aspppp"}
             invoice_data = json.loads(text)
             send_telegram_message(chat_id, "JSON received. Generating PDF, please wait...")
             result = generate_and_store_invoice(
