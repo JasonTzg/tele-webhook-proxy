@@ -1,5 +1,6 @@
 Flask==3.0.3
-WeasyPrint==62.1
+WeasyPrint==61.2
+pydyf==0.8.0
 pypdf==4.2.0
 supabase==2.5.0
 requests==2.32.3

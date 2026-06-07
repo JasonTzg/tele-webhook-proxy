@@ -27,6 +27,10 @@ RUN apt-get update && apt-get install -y \
     libgdk-pixbuf-2.0-0 \
     libffi-dev \
     shared-mime-info \
+    libglib2.0-0 \
+    libgobject-2.0-0 \
+    libharfbuzz0b \
+    libfribidi0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the current directory contents into the container at /app
