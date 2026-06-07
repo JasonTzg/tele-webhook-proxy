@@ -138,7 +138,8 @@ def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source
     attn_slug = ''.join(e for e in str(attention) if e.isalnum())
     timestamp = datetime.now().strftime("%d%m%y-%H%M")
     file_name = f"invoice-{attn_slug}-{timestamp}.pdf"
-    output_path = os.path.join('/tmp', file_name) if os.name != 'nt' else file_name
+    # output_path = os.path.join('/tmp', file_name) if os.name != 'nt' else file_name
+    output_path = file_name
 
     generate_invoice_pdf(invoice_data, output_path)
 
