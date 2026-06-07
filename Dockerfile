@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies required by WeasyPrint
+# 1. Install system dependencies (Cached: changes only if you modify this list)
 RUN apt-get update && apt-get install -y \
     gcc \
     libcairo2 \
@@ -19,16 +19,19 @@ RUN apt-get update && apt-get install -y \
     libfribidi0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the current directory contents into the container at /app
-COPY . /app
+# 2. Copy ONLY the requirements file first (Cached: changes only if dependencies change)
+COPY requirements.txt /app/requirements.txt
 
-# Install any needed packages specified in requirements.txt
+# 3. Install Python packages (Cached: skips entirely during normal code edits)
 RUN pip install --no-cache-dir -r requirements.txt
+
+# 4. Copy the rest of your application code last (This breaks cache, but it's instant)
+COPY . /app
 
 # Make port 10000 available to the world outside this container
 EXPOSE 10000
 
-# Define environment variable
+# Define environment variables
 ENV PORT=10000
 ENV FLASK_APP=app.py
 

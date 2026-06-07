@@ -81,6 +81,7 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
                 payment_reader = PdfReader(io.BytesIO(decrypted_pdf))
                 for page in payment_reader.pages:
                     writer.add_page(page)
+                    logger.info("Added page from decrypted payment PDF.")
         except FileNotFoundError:
             print("Error: payment.enc file not found in assets directory.")
             return None

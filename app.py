@@ -138,16 +138,22 @@ def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source
     attn_slug = ''.join(e for e in str(attention) if e.isalnum())
     timestamp = datetime.now().strftime("%d%m%y-%H%M")
     file_name = f"invoice-{attn_slug}-{timestamp}.pdf"
-    # output_path = os.path.join('/tmp', file_name) if os.name != 'nt' else file_name
-    output_path = file_name
+    output_path = os.path.join('/tmp', file_name) if os.name != 'nt' else file_name
 
     generate_invoice_pdf(invoice_data, output_path)
+
+    if not os.path.exists(output_path):
+    raise FileNotFoundError(
+        f"PDF generation completed but file not found: {output_path}"
+    )
+    logger.info(f"Generated PDF saved to {output_path}")
 
     public_url = ""
     if supabase:
         try:
             with open(output_path, 'rb') as f:
                 supabase.storage.from_("invoices").upload(file_name, f)
+                logger.info(f"Uploaded {file_name} to Supabase Storage.")
             public_url = supabase.storage.from_("invoices").get_public_url(file_name)
             finalize_invoice_record(record["id"] if record else None, file_name, public_url)
         except Exception as e:
