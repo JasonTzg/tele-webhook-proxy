@@ -14,7 +14,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # Basic logging setup
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -25,7 +25,6 @@ SUPABASE_URL = (SUPABASE_URL or "").rstrip("/")
 SUPABASE_KEY = (
     os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     or os.environ.get("SUPABASE_KEY")
-    or os.environ.get("SUPABASE_ANON_KEY")
 )
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
@@ -146,7 +145,7 @@ def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source
     if supabase:
         try:
             with open(output_path, 'rb') as f:
-                supabase.storage.from_("invoices").upload(file_name, f, file_options={"content_type": "application/pdf"})
+                supabase.storage.from_("invoices").upload(file_name, f)
             public_url = supabase.storage.from_("invoices").get_public_url(file_name)
             finalize_invoice_record(record["id"] if record else None, file_name, public_url)
         except Exception as e:
@@ -246,7 +245,7 @@ def webhook():
     elif text.startswith("/queue"):
         # Fetch recent requests
         if supabase:
-            res = supabase.table("webhook_events").select("*").limit(5).order("received_at", desc=True).execute()
+            res = supabase.table("webhook_events").select("*").limit(10).order("received_at", desc=True).execute()
             events = res.data
             msg = "Recent Queue Activity:\n\n"
             msg += "<pre>"
@@ -254,9 +253,9 @@ def webhook():
             msg += "-" * 80 + "\n"
             n = 1
             for ev in events:
-                summary = ev.get("summary", "")
-                status = ev.get("status", "")
-                username = ev.get("username", "unknown")
+                summary = escape(str(ev.get("summary", "")))
+                status = escape(str(ev.get("status", "")))
+                username = escape(str(ev.get("username", "unknown")))
 
                 if isinstance(summary, dict):
                     summary = str(summary)
@@ -266,7 +265,7 @@ def webhook():
 
             msg += "</pre>"
 
-            send_telegram_message(chat_id, msg)
+            send_telegram_message(chat_id, msg, "MarkdownV2")
         else:
             send_telegram_message(chat_id, "Database not configured.")
         return "OK", 200
