@@ -65,8 +65,8 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     # 2. Render main invoice PDF in memory
     pdf_bytes = HTML(string=html_out, base_url=base_dir).write_pdf()
     
-    # 3. Unencrypt payment.enc with fernet_key
-    fernet_key = os.getenv('fernet_key', '').strip()
+    # 3. Unencrypt payment.enc with fernet_key .
+    fernet_key = os.getenv('fernet_key', '').encode() 
     fernet = Fernet(fernet_key)
     logger.info(f"Fernet key length: {len(fernet_key)}")
 
