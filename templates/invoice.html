@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Invoice</title>
+	<style>
+		@page {
+			margin: 60px 40px 40px 40px;
+                        @bottom-right {
+                            content: "PAGE: " counter(page) " OF " counter(pages);
+                            font-size: 9px;
+                            font-family: Helvetica, Arial, sans-serif;
+                            font-weight: bold;
+                        }
+		}
+		@page :first {
+			margin: 36px 40px 40px 40px;
+		}
+		body {
+			font-family: Helvetica, Arial, sans-serif;
+			font-size: 12px;
+			color: #111111;
+			line-height: 1.35;
+			margin: 0;
+			padding: 0;
+		}
+		.wrapper {
+			padding: 0;
+		}
+		.logo {
+			width: 180px;
+			height: auto;
+			display: block;
+			margin: 0 0 6px 0;
+		}
+		.company-name {
+			font-weight: 700;
+			margin-bottom: 2px;
+		}
+		.company-block {
+			font-size: 11px;
+		}
+		.rule {
+			border-top: 1px solid #111111;
+			margin: 10px -40px 10px -40px;
+		}
+		.invoice-title {
+			font-size: 22px;
+			font-weight: 700;
+			margin-bottom: 10px;
+		}
+		.info-table {
+			width: 100%;
+			border-collapse: collapse;
+		}
+		.info-table td {
+			vertical-align: top;
+		}
+		.section-title {
+			font-weight: 700;
+			margin-bottom: 2px;
+		}
+		.address-block {
+			margin-bottom: 32px;
+		}
+		.meta-table {
+			width: 100%;
+			border-collapse: collapse;
+			font-size: 12px;
+		}
+		.meta-table td {
+			padding: 3px 0;
+		}
+		.meta-label {
+			width: 110px;
+		}
+		.items-table {
+			width: 100%;
+			border-collapse: collapse;
+			margin-top: 10px;
+			border: 0;
+		}
+		.items-table th,
+		.items-table td {
+			padding: 6px;
+			vertical-align: top;
+			border-left: 0;
+			border-right: 0;
+		}
+		.items-table thead th {
+			border-top: 1px solid #111111;
+			border-bottom: 1px solid #111111;
+			font-weight: 700;
+			text-align: left;
+		}
+		.items-table thead th.center {
+			text-align: center;
+		}
+		.items-table thead {
+			display: table-header-group;
+		}
+		.items-table tbody td {
+			border-bottom: 1px solid #111111;
+		}
+		.items-table tr {
+			page-break-inside: avoid;
+		}
+		.item-title {
+			color: #2f5fb3;
+			font-weight: 700;
+			display: block;
+			margin-bottom: 2px;
+		}
+		.item-meta {
+			margin-top: 2px;
+		}
+		.right {
+			text-align: right;
+		}
+		.center {
+			text-align: center;
+		}
+		.summary-table {
+			width: 40%;
+			margin-left: auto;
+			border-collapse: collapse;
+			margin-top: 8px;
+			border: 0;
+		}
+		.summary-table td {
+			padding: 6px;
+			border-left: 0;
+			border-right: 0;
+		}
+		.summary-top td {
+			border-top: 1px solid #111111;
+		}
+		.summary-bottom-rule {
+			border-top: 1px solid #111111;
+			margin-top: 0;
+			width: 100%;
+		}
+		.summary-strong {
+			font-weight: 700;
+		}
+		.footer {
+			margin-top: 8px;
+			font-size: 11px;
+		}
+	</style>
+</head>
+<body>
+	<div class="wrapper">
+		{% if logo_uri %}
+			<img class="logo" src="{{ logo_uri }}" alt="">
+		{% endif %}
+        <div class="company-block company-name">{{ company_name }}</div>
+        {% if company_address_line1 %}
+            <div class="company-block">{{ company_address_line1 }}</div>
+        {% endif %}
+        {% if company_address_line2 %}
+            <div class="company-block">{{ company_address_line2 }}</div>
+        {% endif %}
+        {% if company_address_line3 %}
+            <div class="company-block">{{ company_address_line3 }}</div>
+        {% endif %}
+
+		<div class="rule"></div>
+
+		<div class="invoice-title">INVOICE</div>
+
+		<table class="info-table">
+			<tr>
+				<td style="width: 60%;">
+					<div class="address-block">
+						<div class="section-title">Billing Address:</div>
+						<div>{{ invoice.billing_address | default('') | replace('\n', '<br>') | safe }}</div>
+					</div>
+					<div class="address-block">
+						<div class="section-title">Delivery Address:</div>
+						<div>{{ invoice.delivery_address | default('') | replace('\n', '<br>') | safe }}</div>
+					</div>
+					<div class="address-block">
+						<div>Attn: {{ invoice.attn | default('') }}</div>
+						<div>Tel. : {{ invoice.tel | default('') }}</div>
+					</div>
+				</td>
+				<td style="width: 40%;">
+					<table class="meta-table">
+						<tr>
+							<td class="meta-label">Co Reg No.:</td>
+							<td>{{ invoice.co_reg_no | default('') }}</td>
+						</tr>
+						<tr>
+							<td class="meta-label">Invoice No.:</td>
+							<td>{{ invoice.invoice_no | default('') }}</td>
+						</tr>
+						<tr>
+							<td class="meta-label">Invoice Date:</td>
+							<td>{{ invoice.invoice_date | default('') }}</td>
+						</tr>
+					</table>
+				</td>
+			</tr>
+		</table>
+
+		<table class="items-table">
+			<thead>
+				<tr>
+					<th style="width: 6%;">No</th>
+					<th style="width: 54%;">Description</th>
+					<th style="width: 10%;" class="center">Qty</th>
+					<th style="width: 15%;" class="center">Unit Price</th>
+					<th style="width: 15%;" class="center">Amount (SGD)</th>
+				</tr>
+			</thead>
+			<tbody>
+				{% if items_with_amounts %}
+					{% for item in items_with_amounts %}
+						<tr>
+							<td>{{ loop.index }}</td>
+							<td>
+								<span class="item-title">{{ item.description | default('') }}</span>
+								<div class="item-meta">Material: {{ item.material | default('') }}</div>
+								<div class="item-meta">Size: {{ item.size | default('') }}</div>
+								<div class="item-meta">Remarks: {{ item.remarks | default('') }}</div>
+							</td>
+							<td class="center">{{ "%.2f" | format(item.qty|float) }}</td>
+							<td class="center">{{ "%.2f" | format(item.unit_price|float) }}</td>
+							<td class="center">{{ "%.2f" | format(item.amount|float) }}</td>
+						</tr>
+					{% endfor %}
+				{% else %}
+					<tr>
+						<td colspan="5">No items provided.</td>
+					</tr>
+				{% endif %}
+			</tbody>
+		</table>
+
+		<table class="summary-table">
+			<tr>
+				<td class="right">Total</td>
+				<td class="right">$ {{ "%.2f" | format(total|float) }}</td>
+			</tr>
+			<tr class="summary-top summary-strong">
+				<td class="right">TOTAL PAYABLE (SGD)</td>
+				<td class="right">$ {{ "%.2f" | format(total|float) }}</td>
+			</tr>
+		</table>
+		<div class="summary-bottom-rule"></div>
+
+		<div class="footer">
+			<div>*This is a computer-generated invoice. No Signature is required.</div>
+			<div>*In the event of the project canceled upon confirmation, all payment will be forfeited.</div>
+		</div>
+	</div>
+</body>
+</html>

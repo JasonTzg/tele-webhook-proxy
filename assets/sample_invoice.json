@@ -1,0 +1,210 @@
+{
+  "billing_address": "The Melody Pte Ltd\n1xx Sixxx Ave #0x-5x S123123",
+  "delivery_address": "123 Bukit Batok Road",
+  "invoice_no": "02775",
+  "invoice_date": "08 May 2026",
+  "attn": "Salmon",
+  "tel": "+65 8999 7999",
+  "items": [
+    {
+      "description": "Acrylic Light Box",
+      "material": "Acrylic, sticker and aluminium",
+      "size": "65cm (W) x 65cm (H)",
+      "remarks": "Include installation",
+      "qty": 1,
+      "unit_price": 865
+    },
+    {
+      "description": "Acrylic Light Box 2",
+      "material": "Acrylic, sticker and aluminium",
+      "size": "65cm (W) x 65cm (H)",
+      "remarks": "Include installation",
+      "qty": 1,
+      "unit_price": 860
+    },
+    {
+      "description": "Acrylic Light Box 3",
+      "material": "Acrylic, sticker and aluminium",
+      "size": "65cm (W) x 65cm (H)",
+      "remarks": "Include installation",
+      "qty": 1,
+      "unit_price": 870
+    },
+    {
+      "description": "Acrylic Light Box 4",
+      "material": "Acrylic, sticker and aluminium",
+      "size": "65cm (W) x 65cm (H)",
+      "remarks": "Include installation",
+      "qty": 1,
+      "unit_price": 880
+    },
+    {
+      "description": "Acrylic Light Box 5",
+      "material": "Acrylic, sticker and aluminium",
+      "size": "65cm (W) x 65cm (H)",
+      "remarks": "Include installation",
+      "qty": 1,
+      "unit_price": 890
+    },
+    {
+      "description": "Acrylic Light Box 6",
+      "material": "Acrylic, sticker and aluminium",
+      "size": "65cm (W) x 65cm (H)",
+      "remarks": "Include installation",
+      "qty": 1,
+      "unit_price": 900
+    },
+      {
+        "description": "Acrylic Light Box 7",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 910
+      },
+      {
+        "description": "Acrylic Light Box 8",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 920
+      },
+      {
+        "description": "Acrylic Light Box 9",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 930
+      },
+      {
+        "description": "Acrylic Light Box 10",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 940
+      },
+      {
+        "description": "Acrylic Light Box 11",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 950
+      },
+      {
+        "description": "Acrylic Light Box 12",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 960
+      },
+      {
+        "description": "Acrylic Light Box 13",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 970
+      },
+      {
+        "description": "Acrylic Light Box 14",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 980
+      },
+      {
+        "description": "Acrylic Light Box 15",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 990
+      },
+      {
+        "description": "Acrylic Light Box 16",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 1000
+      },
+      {
+        "description": "Acrylic Light Box 17",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 1010
+      },
+      {
+        "description": "Acrylic Light Box 18",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 1020
+      },
+      {
+        "description": "Acrylic Light Box 19",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 1030
+      },
+      {
+        "description": "Acrylic Light Box 20",
+        "material": "Acrylic, sticker and aluminium",
+        "size": "65cm (W) x 65cm (H)",
+        "remarks": "Include installation",
+        "qty": 1,
+        "unit_price": 1040
+      },
+        {
+          "description": "Acrylic Light Box 21",
+          "material": "Acrylic, sticker and aluminium",
+          "size": "65cm (W) x 65cm (H)",
+          "remarks": "Include installation",
+          "qty": 1,
+          "unit_price": 1050
+        },
+        {
+          "description": "Acrylic Light Box 22",
+          "material": "Acrylic, sticker and aluminium",
+          "size": "65cm (W) x 65cm (H)",
+          "remarks": "Include installation",
+          "qty": 1,
+          "unit_price": 1060
+        },
+        {
+          "description": "Acrylic Light Box 23",
+          "material": "Acrylic, sticker and aluminium",
+          "size": "65cm (W) x 65cm (H)",
+          "remarks": "Include installation",
+          "qty": 1,
+          "unit_price": 1070
+        },
+        {
+          "description": "Acrylic Light Box 24",
+          "material": "Acrylic, sticker and aluminium",
+          "size": "65cm (W) x 65cm (H)",
+          "remarks": "Include installation",
+          "qty": 1,
+          "unit_price": 1080
+        },
+        {
+          "description": "Acrylic Light Box 25",
+          "material": "Acrylic, sticker and aluminium",
+          "size": "65cm (W) x 65cm (H)",
+          "remarks": "Include installation",
+          "qty": 1,
+          "unit_price": 1090
+        }
+  ]
+}
