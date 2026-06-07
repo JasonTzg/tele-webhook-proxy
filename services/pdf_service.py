@@ -3,7 +3,7 @@ import io
 import requests
 from weasyprint import HTML
 from pypdf import PdfWriter, PdfReader
-from jinja2 import Environment, FileSystemPathLoader, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader
 
 def generate_invoice_pdf(invoice_data: dict, output_path: str):
     """
