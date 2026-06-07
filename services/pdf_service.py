@@ -68,6 +68,7 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     # 3. Unencrypt payment.enc with fernet_key
     fernet_key = os.getenv('fernet_key', '').strip()
     fernet = Fernet(fernet_key)
+    logger.info(f"Fernet key length: {len(fernet_key)}")
 
     writer = PdfWriter()
     
@@ -78,9 +79,8 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     
     try:
         try: # if cannot find the file, then error out with message
-            payment_pdf_assets = Environment(loader=FileSystemLoader(assets_dir)).get_template("payment.enc")
-            # with open(os.path.join(assets_dir, "payment.enc"), "rb") as file:
-            with open(payment_pdf_assets.filename, "rb") as file:
+            payment_path = os.path.join(assets_dir, "payment.enc")
+            with open(payment_path, "rb") as file:
                 decrypted_pdf = fernet.decrypt(file.read())
                 
                 # Add decrypted payment pages
@@ -92,7 +92,7 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
             logger.error("Error: payment.enc file not found in assets directory.")
             return None
     except Exception as e:
-        logger.error(f"Error decrypting payment PDF: {e}")
+        logger.exception("Error decrypting payment PDF")
         return None
         
     # Write the final PDF to disk
