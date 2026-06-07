@@ -143,9 +143,9 @@ def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source
     generate_invoice_pdf(invoice_data, output_path)
 
     if not os.path.exists(output_path):
-    raise FileNotFoundError(
-        f"PDF generation completed but file not found: {output_path}"
-    )
+        raise FileNotFoundError(
+            f"PDF generation completed but file not found: {output_path}"
+        )
     logger.info(f"Generated PDF saved to {output_path}")
 
     public_url = ""
