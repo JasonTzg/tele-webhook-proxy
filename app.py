@@ -14,7 +14,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # Basic logging setup
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.info)
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
