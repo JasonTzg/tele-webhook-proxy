@@ -78,7 +78,7 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     
     try:
         try: # if cannot find the file, then error out with message
-            with open("../assets/payment.enc", "rb") as file:
+            with open(os.path.join(assets_dir, "payment.enc"), "rb") as file:
                 decrypted_pdf = fernet.decrypt(file.read())
                 
                 # Add decrypted payment pages
