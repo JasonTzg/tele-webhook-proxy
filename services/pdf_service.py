@@ -5,6 +5,10 @@ from weasyprint import HTML
 from pypdf import PdfWriter, PdfReader
 from jinja2 import Environment, FileSystemLoader
 from cryptography.fernet import Fernet
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def generate_invoice_pdf(invoice_data: dict, output_path: str):
     """
@@ -83,14 +87,15 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
                     writer.add_page(page)
                     logger.info("Added page from decrypted payment PDF.")
         except FileNotFoundError:
-            print("Error: payment.enc file not found in assets directory.")
+            logger.error("Error: payment.enc file not found in assets directory.")
             return None
     except Exception as e:
-        print(f"Error decrypting payment PDF: {e}")
+        logger.error(f"Error decrypting payment PDF: {e}")
         return None
         
     # Write the final PDF to disk
     with open(output_path, "wb") as f_out:
         writer.write(f_out)
         
+    logger.info(f"Final PDF saved to {output_path}")
     return output_path
