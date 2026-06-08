@@ -66,9 +66,16 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     pdf_bytes = HTML(string=html_out, base_url=base_dir).write_pdf()
     
     # 3. Unencrypt payment.enc with fernet_key .
-    # error: ERROR:app:Generation error: Fernet key must be 32 url-safe base64-encoded bytes.
-    #
-    fernet_key = os.getenv('fernet_key', '').encode() 
+    fernet_key = (
+        os.getenv('FERNET_KEY')
+        or os.getenv('fernet_key')
+        or ''
+    ).strip().encode()
+
+    if not fernet_key:
+        logger.error("Missing Fernet key. Set FERNET_KEY or fernet_key in the environment.")
+        return None
+
     fernet = Fernet(fernet_key)
     logger.info(f"Fernet key length: {len(fernet_key)}")
     logger.info(f"BASE64 VALID: {len(fernet_key) == 44}")
@@ -84,7 +91,8 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
         try: # if cannot find the file, then error out with message
             payment_path = os.path.join(assets_dir, "payment.enc")
             with open(payment_path, "rb") as file:
-                decrypted_pdf = fernet.decrypt(file.read())
+                encrypted_payment = file.read()
+                decrypted_pdf = fernet.decrypt(encrypted_payment)
                 
                 # Add decrypted payment pages
                 payment_reader = PdfReader(io.BytesIO(decrypted_pdf))
@@ -93,6 +101,11 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
                     logger.info("Added page from decrypted payment PDF.")
         except FileNotFoundError:
             logger.error("Error: payment.enc file not found in assets directory.")
+            return None
+        except Exception:
+            logger.exception(
+                "Error decrypting payment PDF. Check that payment.enc was re-encrypted with the exact same Fernet key deployed on Render."
+            )
             return None
     except Exception as e:
         logger.exception("Error decrypting payment PDF")
