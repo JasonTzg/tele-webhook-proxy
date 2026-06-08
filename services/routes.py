@@ -33,6 +33,7 @@ from services.common import (
     supabase,
     get_bot_state_data,
     update_bot_state,
+    get_bot_state,
 )
 from services.invoice_logic import (
     apply_edit_to_invoice,
@@ -45,7 +46,6 @@ from services.invoice_logic import (
     extract_edit_command,
     generate_and_store_invoice,
     get_active_invoice_session,
-    get_bot_state,
     get_latest_completed_session,
     get_session_by_status_index,
     get_sessions_by_status,
