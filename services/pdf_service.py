@@ -66,9 +66,12 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     pdf_bytes = HTML(string=html_out, base_url=base_dir).write_pdf()
     
     # 3. Unencrypt payment.enc with fernet_key .
+    # error: ERROR:app:Generation error: Fernet key must be 32 url-safe base64-encoded bytes.
+    #
     fernet_key = os.getenv('fernet_key', '').encode() 
     fernet = Fernet(fernet_key)
     logger.info(f"Fernet key length: {len(fernet_key)}")
+    logger.info(f"BASE64 VALID: {len(fernet_key) == 44}")
 
     writer = PdfWriter()
     
