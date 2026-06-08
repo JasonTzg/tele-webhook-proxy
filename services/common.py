@@ -24,6 +24,10 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 
 BOT_STATE_IDLE = "IDLE"
 BOT_STATE_WAITING_MODE = "WAITING_FOR_INVOICE_MODE"
+BOT_STATE_WAITING_CANCEL = "WAITING_FOR_CANCEL_ACTION"
+BOT_STATE_WAITING_SESSION_SELECTION = "WAITING_FOR_SESSION_SELECTION"
+BOT_STATE_WAITING_SESSION_ACTION = "WAITING_FOR_SESSION_ACTION"
+BOT_STATE_WAITING_DELETE_CONFIRM = "WAITING_FOR_SESSION_DELETE_CONFIRM"
 BOT_STATE_COLLECTING = "COLLECTING_INVOICE"
 BOT_STATE_REVIEW = "REVIEW_INVOICE"
 
@@ -40,21 +44,23 @@ MODE_JSON_CALLBACK = "invoice_mode_json"
 MODE_GUIDED_CALLBACK = "invoice_mode_guided"
 CONFIRM_CALLBACK = "invoice_confirm_generate"
 CANCEL_CALLBACK = "invoice_cancel_session"
+CANCEL_ARCHIVE_CALLBACK = "invoice_cancel_archive"
+CANCEL_DISCARD_CALLBACK = "invoice_cancel_discard"
 
 TOP_LEVEL_PROMPTS = [
     ("attn", "1. Client name? (attn)"),
     ("tel", "2. Client number? (tel)"),
-    ("invoice_date", "3. Invoice date? Put . for Current date."),
-    ("billing_address", "4. Billing address? Put \\n if you want go to next line."),
-    ("delivery_address", "5. Delivery address? If same as Billing address, put ."),
-    ("items_count", "6. How many items/products?"),
+    ("invoice_date", "3. Invoice date? Put . for Current Date."),
+    ("billing_address", "4. Billing address? Example:\n\nThe Melody Pte Ltd\n1xx Sixxx Ave #0x-5x S123123"),
+    ("delivery_address", "5. Delivery address? Put . if same as Billing address."),
+    ("items_count", "6. How many items/products? Must be more than 0."),
 ]
 
 ITEM_PROMPTS = [
     ("description", "Description/Product Name Selling?"),
     ("material", "Material?"),
     ("size", "Size?"),
-    ("remarks", "Remarks? [This is optional]"),
+    ("remarks", "Remarks? Put . to skip."),
     ("qty", "Qty?"),
     ("unit_price", "Unit Price?"),
 ]
@@ -149,16 +155,27 @@ def get_bot_state(chat_id):
     return BOT_STATE_IDLE
 
 
-def update_bot_state(chat_id, new_state):
+def get_bot_state_data(chat_id):
+    if not supabase:
+        return {}
+    res = supabase.table("bot_states").select("state_data").eq("chat_id", chat_id).execute()
+    if res.data:
+        data = res.data[0].get("state_data") or {}
+        return data if isinstance(data, dict) else {}
+    return {}
+
+
+def update_bot_state(chat_id, new_state, state_data=None):
     if not supabase:
         return
     try:
-        supabase.table("bot_states").upsert(
-            {
-                "chat_id": chat_id,
-                "state": new_state,
-                "updated_at": now_iso(),
-            }
-        ).execute()
+        payload = {
+            "chat_id": chat_id,
+            "state": new_state,
+            "updated_at": now_iso(),
+        }
+        if state_data is not None:
+            payload["state_data"] = state_data
+        supabase.table("bot_states").upsert(payload).execute()
     except Exception as e:
         logger.error("State Update Error: %s", e)

@@ -223,7 +223,9 @@
 								<span class="item-title">{{ item.description | default('') }}</span>
 								<div class="item-meta">Material: {{ item.material | default('') }}</div>
 								<div class="item-meta">Size: {{ item.size | default('') }}</div>
-								<div class="item-meta">Remarks: {{ item.remarks | default('') }}</div>
+								{% if item.remarks %}
+									<div class="item-meta">Remarks: {{ item.remarks }}</div>
+								{% endif %}
 							</td>
 							<td class="center">{{ "%.2f" | format(item.qty|float) }}</td>
 							<td class="center">{{ "%.2f" | format(item.unit_price|float) }}</td>

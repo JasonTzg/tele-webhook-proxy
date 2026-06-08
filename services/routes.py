@@ -7,8 +7,14 @@ from services.common import (
     BOT_STATE_COLLECTING,
     BOT_STATE_IDLE,
     BOT_STATE_REVIEW,
+    BOT_STATE_WAITING_CANCEL,
+    BOT_STATE_WAITING_DELETE_CONFIRM,
+    BOT_STATE_WAITING_SESSION_ACTION,
+    BOT_STATE_WAITING_SESSION_SELECTION,
     BOT_STATE_WAITING_MODE,
     CANCEL_CALLBACK,
+    CANCEL_ARCHIVE_CALLBACK,
+    CANCEL_DISCARD_CALLBACK,
     CONFIRM_CALLBACK,
     MODE_GUIDED,
     MODE_GUIDED_CALLBACK,
@@ -16,6 +22,7 @@ from services.common import (
     MODE_JSON_CALLBACK,
     SESSION_STATUS_COLLECTING,
     SESSION_STATUS_COMPLETED,
+    SESSION_STATUS_ARCHIVED,
     SESSION_STATUS_REVIEW,
     answer_telegram_callback,
     build_inline_keyboard,
@@ -24,6 +31,7 @@ from services.common import (
     now_iso,
     send_telegram_message,
     supabase,
+    get_bot_state_data,
     update_bot_state,
 )
 from services.invoice_logic import (
@@ -37,10 +45,18 @@ from services.invoice_logic import (
     extract_edit_command,
     generate_and_store_invoice,
     get_active_invoice_session,
+    get_bot_state,
     get_latest_completed_session,
+    get_session_by_status_index,
+    get_sessions_by_status,
     get_session_invoice,
     get_session_queue,
+    delete_session,
     load_sample_invoice,
+    clone_session_for_review,
+    format_session_list_item,
+    format_session_summary,
+    restore_archived_session_for_edit,
     persist_session,
     set_session_archived,
     set_session_completed,
@@ -79,6 +95,184 @@ def send_review_prompt(chat_id, session):
     )
 
 
+def send_cancel_prompt(chat_id):
+    reply_markup = build_inline_keyboard(
+        [
+            [
+                {"text": "Archive draft", "callback_data": CANCEL_ARCHIVE_CALLBACK},
+                {"text": "Throw away draft", "callback_data": CANCEL_DISCARD_CALLBACK},
+            ]
+        ]
+    )
+    update_bot_state(chat_id, BOT_STATE_WAITING_CANCEL)
+    send_telegram_message(chat_id, "What should I do with the current draft?", reply_markup=reply_markup)
+
+
+def send_completed_list(chat_id):
+    sessions = get_sessions_by_status(chat_id, SESSION_STATUS_COMPLETED, limit=10)
+    if not sessions:
+        send_telegram_message(chat_id, "No completed invoices found.")
+        update_bot_state(chat_id, BOT_STATE_IDLE)
+        return
+
+    update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_SELECTION, {"kind": "completed"})
+    lines = ["Latest completed invoices:", "Reply with a number from 1 to 10.", ""]
+    for index, session in enumerate(sessions, start=1):
+        lines.append(format_session_list_item(session, index))
+    send_telegram_message(chat_id, "\n".join(lines))
+
+
+def send_archived_list(chat_id):
+    sessions = get_sessions_by_status(chat_id, SESSION_STATUS_ARCHIVED, limit=10)
+    if not sessions:
+        send_telegram_message(chat_id, "No archived invoices found.")
+        update_bot_state(chat_id, BOT_STATE_IDLE)
+        return
+
+    update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_SELECTION, {"kind": "archived"})
+    lines = ["Latest archived invoices:", "Reply with a number from 1 to 10.", ""]
+    for index, session in enumerate(sessions, start=1):
+        lines.append(format_session_list_item(session, index))
+    send_telegram_message(chat_id, "\n".join(lines))
+
+
+def send_completed_action_summary(chat_id, session):
+    update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_ACTION, {"kind": "completed", "session_id": session.get("id")})
+    send_telegram_message(
+        chat_id,
+        format_session_summary(session) + "\n\n1. Re-generate PDF\n2. Modify and re-generate\n\nReply with 1 or 2.",
+    )
+
+
+def send_archived_action_summary(chat_id, session):
+    update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_ACTION, {"kind": "archived", "session_id": session.get("id")})
+    send_telegram_message(
+        chat_id,
+        format_session_summary(session) + "\n\n1. Delete\n2. Continue to edit\n\nReply with 1 or 2.",
+    )
+
+
+def send_archived_delete_confirm(chat_id, session):
+    update_bot_state(chat_id, BOT_STATE_WAITING_DELETE_CONFIRM, {"session_id": session.get("id")})
+    send_telegram_message(
+        chat_id,
+        format_session_summary(session) + "\n\n1. Confirm delete\n2. Back\n\nReply with 1 or 2.",
+    )
+
+
+def handle_history_selection(chat_id, kind, text):
+    if not text.isdigit():
+        send_telegram_message(chat_id, "Reply with a number from 1 to 10.")
+        return True
+
+    index = int(text) - 1
+    session = get_session_by_status_index(chat_id, SESSION_STATUS_COMPLETED if kind == "completed" else SESSION_STATUS_ARCHIVED, index)
+    if not session:
+        send_telegram_message(chat_id, "That selection is not available.")
+        return True
+
+    if kind == "completed":
+        send_completed_action_summary(chat_id, session)
+    else:
+        send_archived_action_summary(chat_id, session)
+    return True
+
+
+def handle_history_action(chat_id, state_data, text):
+    kind = state_data.get("kind")
+    session_id = state_data.get("session_id")
+    if not kind or not session_id:
+        update_bot_state(chat_id, BOT_STATE_IDLE)
+        return True
+
+    if text not in {"1", "2"}:
+        send_telegram_message(chat_id, "Reply with 1 or 2.")
+        return True
+
+    status = SESSION_STATUS_COMPLETED if kind == "completed" else SESSION_STATUS_ARCHIVED
+    sessions = get_sessions_by_status(chat_id, status, limit=10)
+    session = next((item for item in sessions if str(item.get("id")) == str(session_id)), None)
+    if not session:
+        send_telegram_message(chat_id, "That session is no longer available.")
+        update_bot_state(chat_id, BOT_STATE_IDLE)
+        return True
+
+    if kind == "completed":
+        if text == "1":
+            send_telegram_message(chat_id, "Re-generating the PDF now...")
+            try:
+                result = generate_and_store_invoice(
+                    invoice_data=get_session_invoice(session),
+                    chat_id=chat_id,
+                    username="telegram",
+                    source="telegram",
+                    notify_telegram=True,
+                )
+                complete_session_generation(session, result)
+                update_bot_state(chat_id, BOT_STATE_IDLE)
+            except Exception as e:
+                logger.error("Completed regenerate error: %s", e)
+                send_telegram_message(chat_id, f"Error generating PDF: {str(e)}")
+                update_bot_state(chat_id, BOT_STATE_IDLE)
+            return True
+
+        cloned_session = clone_session_for_review(session, status=SESSION_STATUS_REVIEW, state=BOT_STATE_REVIEW)
+        if not cloned_session:
+            send_telegram_message(chat_id, "Unable to create a draft copy for editing.")
+            update_bot_state(chat_id, BOT_STATE_IDLE)
+            return True
+
+        send_review_prompt(chat_id, cloned_session)
+        return True
+
+    if text == "1":
+        send_archived_delete_confirm(chat_id, session)
+        return True
+
+    restored_session = restore_archived_session_for_edit(session)
+    if not restored_session:
+        send_telegram_message(chat_id, "Unable to restore that archived draft.")
+        update_bot_state(chat_id, BOT_STATE_IDLE)
+        return True
+
+    queue = get_session_queue(restored_session)
+    if queue:
+        missing_lines = ["I found these missing fields:"]
+        for index, item in enumerate(queue, start=1):
+            missing_lines.append(f"{index}. {item.get('prompt', 'no data')}")
+        send_telegram_message(chat_id, "\n".join(missing_lines))
+        send_next_queue_prompt(chat_id, restored_session)
+    else:
+        send_telegram_message(chat_id, "No missing fields found. You can still edit the summary before generating.")
+        send_review_prompt(chat_id, restored_session)
+    return True
+
+
+def handle_delete_confirm(chat_id, state_data, text):
+    session_id = state_data.get("session_id")
+    if not session_id:
+        update_bot_state(chat_id, BOT_STATE_IDLE)
+        return True
+
+    sessions = get_sessions_by_status(chat_id, SESSION_STATUS_ARCHIVED, limit=10)
+    session = next((item for item in sessions if str(item.get("id")) == str(session_id)), None)
+    if not session:
+        send_telegram_message(chat_id, "That archived invoice is no longer available.")
+        update_bot_state(chat_id, BOT_STATE_IDLE)
+        return True
+
+    if text == "1":
+        if delete_session(session):
+            send_telegram_message(chat_id, "Archived invoice deleted.")
+        else:
+            send_telegram_message(chat_id, "Unable to delete that archived invoice.")
+        update_bot_state(chat_id, BOT_STATE_IDLE)
+        return True
+
+    send_archived_action_summary(chat_id, session)
+    return True
+
+
 def send_next_queue_prompt(chat_id, session):
     queue = list((session.get("session_data") or {}).get("queue") or [])
     if not queue:
@@ -89,6 +283,7 @@ def send_next_queue_prompt(chat_id, session):
 
 def expand_count_into_item_queue(session, item_count):
     invoice = get_session_invoice(session)
+    if item_count <= 0: item_count = 1
     invoice["items"] = [{} for _ in range(item_count)]
     queue = build_guided_item_queue(item_count)
     set_session_invoice(session, invoice, queue=queue, status=SESSION_STATUS_COLLECTING, state=BOT_STATE_COLLECTING)
@@ -107,6 +302,13 @@ def archive_active_session(chat_id):
     session = get_active_invoice_session(chat_id)
     if session:
         set_session_archived(session)
+    update_bot_state(chat_id, BOT_STATE_IDLE)
+
+
+def discard_active_session(chat_id):
+    session = get_active_invoice_session(chat_id)
+    if session:
+        delete_session(session)
     update_bot_state(chat_id, BOT_STATE_IDLE)
 
 
@@ -165,7 +367,7 @@ def process_json_invoice_input(chat_id, session, text):
     try:
         raw_invoice = json.loads(text)
     except json.JSONDecodeError:
-        send_telegram_message(chat_id, "Invalid JSON format. Please send valid JSON or type /cancel to abort.")
+        send_telegram_message(chat_id, "Invalid JSON format. Please send valid JSON or type /cancel to choose archive or discard.")
         return
 
     from services.invoice_logic import normalize_invoice_payload
@@ -238,6 +440,11 @@ def handle_callback_query(update):
         return True
 
     if callback_data == CONFIRM_CALLBACK:
+        if get_bot_state(chat_id) == BOT_STATE_WAITING_CANCEL:
+            answer_telegram_callback(callback_id, "Cancel choice pending")
+            send_cancel_prompt(chat_id)
+            return True
+
         answer_telegram_callback(callback_id, "Generating PDF")
         session = get_active_invoice_session(chat_id)
         if not session:
@@ -269,12 +476,20 @@ def handle_callback_query(update):
         return True
 
     if callback_data == CANCEL_CALLBACK:
+        answer_telegram_callback(callback_id, "Choose what to do with the draft")
+        send_cancel_prompt(chat_id)
+        return True
+
+    if callback_data == CANCEL_ARCHIVE_CALLBACK:
         answer_telegram_callback(callback_id, "Invoice draft archived")
-        session = get_active_invoice_session(chat_id)
-        if session:
-            set_session_archived(session)
-        update_bot_state(chat_id, BOT_STATE_IDLE)
+        archive_active_session(chat_id)
         send_telegram_message(chat_id, "Invoice draft archived. Send /invoice to start a new one.")
+        return True
+
+    if callback_data == CANCEL_DISCARD_CALLBACK:
+        answer_telegram_callback(callback_id, "Invoice draft discarded")
+        discard_active_session(chat_id)
+        send_telegram_message(chat_id, "Invoice draft discarded. Send /invoice to start a new one.")
         return True
 
     return False
@@ -344,13 +559,59 @@ def register_routes(app):
 
         log_event_to_db(chat_id, username, "message", text[:50], update, "received")
 
+        bot_state = get_bot_state(chat_id)
+        bot_state_data = get_bot_state_data(chat_id)
+
+        if bot_state == BOT_STATE_WAITING_SESSION_SELECTION:
+            if text.startswith("/cancel"):
+                update_bot_state(chat_id, BOT_STATE_IDLE)
+                send_telegram_message(chat_id, "Selection cancelled.")
+                return "OK", 200
+            kind = bot_state_data.get("kind")
+            if kind in {"completed", "archived"}:
+                handle_history_selection(chat_id, kind, text)
+                return "OK", 200
+
+        if bot_state == BOT_STATE_WAITING_SESSION_ACTION:
+            if text.startswith("/cancel"):
+                update_bot_state(chat_id, BOT_STATE_IDLE)
+                send_telegram_message(chat_id, "Selection cancelled.")
+                return "OK", 200
+            handle_history_action(chat_id, bot_state_data, text)
+            return "OK", 200
+
+        if bot_state == BOT_STATE_WAITING_DELETE_CONFIRM:
+            if text.startswith("/cancel"):
+                update_bot_state(chat_id, BOT_STATE_IDLE)
+                send_telegram_message(chat_id, "Delete confirmation cancelled.")
+                return "OK", 200
+            handle_delete_confirm(chat_id, bot_state_data, text)
+            return "OK", 200
+
         current_state = BOT_STATE_IDLE
         active_session = get_active_invoice_session(chat_id)
         if active_session:
             current_state = active_session.get("state") or BOT_STATE_IDLE
         else:
             current_state = BOT_STATE_IDLE
+        if get_bot_state(chat_id) == BOT_STATE_WAITING_CANCEL:
+            current_state = BOT_STATE_WAITING_CANCEL
         current_state = current_state if current_state else BOT_STATE_IDLE
+
+        if current_state == BOT_STATE_WAITING_CANCEL:
+            if text.startswith("/cancel"):
+                send_cancel_prompt(chat_id)
+            else:
+                send_telegram_message(chat_id, "Please choose Archive draft or Throw away draft to continue.")
+            return "OK", 200
+
+        if text.startswith("/completed"):
+            send_completed_list(chat_id)
+            return "OK", 200
+
+        if text.startswith("/archived"):
+            send_archived_list(chat_id)
+            return "OK", 200
 
         if text.startswith("/invoice"):
             if active_session:
@@ -382,9 +643,10 @@ def register_routes(app):
 
         if text.startswith("/cancel"):
             if active_session:
-                set_session_archived(active_session)
-            update_bot_state(chat_id, BOT_STATE_IDLE)
-            send_telegram_message(chat_id, "Invoice draft archived. Send /invoice to start a new one.")
+                send_cancel_prompt(chat_id)
+            else:
+                update_bot_state(chat_id, BOT_STATE_IDLE)
+                send_telegram_message(chat_id, "No active invoice draft found.")
             return "OK", 200
 
         if active_session:
@@ -394,7 +656,7 @@ def register_routes(app):
             if active_session.get("state") == BOT_STATE_REVIEW:
                 edit = extract_edit_command(text)
                 if not edit:
-                    send_telegram_message(chat_id, "To edit, send something like 'attn: New Name' or 'item 1 qty: 10'. Use the buttons to generate or cancel.")
+                    send_telegram_message(chat_id, "To edit, send something like 'attn: New Name' or 'item 1 qty: 10'. Use the buttons to generate or choose cancel.")
                     return "OK", 200
 
                 invoice = apply_edit_to_invoice(get_session_invoice(active_session), edit)

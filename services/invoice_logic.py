@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import re
@@ -9,6 +10,7 @@ from services.common import (
     BOT_STATE_COLLECTING,
     BOT_STATE_IDLE,
     BOT_STATE_REVIEW,
+    MODE_GUIDED,
     GUIDED_EDITABLE_FIELDS,
     ITEM_EDITABLE_FIELDS,
     ITEM_PROMPTS,
@@ -82,8 +84,8 @@ def find_matching_value(data, aliases):
 
 
 def extract_address_fields(raw_data):
-    billing_aliases = ["billing address", "billing", "billings", "ba"]
-    delivery_aliases = ["delivery address", "delivery", "delivers", "da"]
+    billing_aliases = ["billing address", "billing", "billings"]
+    delivery_aliases = ["delivery address", "delivery", "delivers"]
     generic_aliases = ["address", "addresses"]
 
     billing_address = find_matching_value(raw_data, billing_aliases)
@@ -100,7 +102,7 @@ def extract_address_fields(raw_data):
 
 def normalize_invoice_date(value):
     if is_blank(value) or str(value).strip() == ".":
-        return datetime.utcnow().strftime("%Y-%m-%d")
+        return datetime.utcnow().strftime("%d/%b/%Y")
     return safe_text_value(value)
 
 
@@ -223,6 +225,117 @@ def get_latest_completed_session(chat_id):
     return None
 
 
+def get_sessions_by_status(chat_id, status, limit=10):
+    if not supabase:
+        return []
+
+    order_field = "updated_at"
+    if status == SESSION_STATUS_COMPLETED:
+        order_field = "completed_at"
+    elif status == SESSION_STATUS_ARCHIVED:
+        order_field = "archived_at"
+
+    res = (
+        supabase.table("invoice_sessions")
+        .select("*")
+        .eq("chat_id", chat_id)
+        .eq("status", status)
+        .order(order_field, desc=True)
+        .limit(limit)
+        .execute()
+    )
+
+    sessions = res.data or []
+    for row in sessions:
+        row["session_data"] = row.get("session_data") or {}
+    return sessions
+
+
+def get_session_mode(session):
+    session_data = session.get("session_data") or {}
+    return session_data.get("mode") or session.get("mode") or MODE_GUIDED
+
+
+def get_session_invoice_value(session, field_name, default_value="no data"):
+    invoice = get_session_invoice(session)
+    value = invoice.get(field_name)
+    if is_blank(value):
+        return default_value
+    return safe_text_value(value)
+
+
+def format_session_timestamp(value):
+    if is_blank(value):
+        return "no data"
+    text_value = str(value)
+    try:
+        parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+        return parsed.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return text_value
+
+
+def format_session_list_item(session, index):
+    invoice = get_session_invoice(session)
+    attn = safe_text_value(invoice.get("attn")) or "no data"
+    tel = safe_text_value(invoice.get("tel")) or "no data"
+    timestamp = format_session_timestamp(session.get("completed_at") or session.get("archived_at") or session.get("updated_at"))
+    return f"{index}. {attn} | {tel} | {timestamp}"
+
+
+def format_session_summary(session):
+    invoice = get_session_invoice(session)
+    lines = [build_review_summary(invoice), ""]
+    if session.get("status") == SESSION_STATUS_COMPLETED:
+        lines.append(f"Completed at: {escape(format_session_timestamp(session.get('completed_at')))}")
+        lines.append(f"Generated invoice id: {escape(str(session.get('generated_invoice_id') or 'no data'))}")
+    elif session.get("status") == SESSION_STATUS_ARCHIVED:
+        lines.append(f"Archived at: {escape(format_session_timestamp(session.get('archived_at')))}")
+    lines.append(f"Session id: {escape(str(session.get('id') or 'no data'))}")
+    return "\n".join(lines)
+
+
+def get_session_by_status_index(chat_id, status, index):
+    sessions = get_sessions_by_status(chat_id, status, limit=10)
+    if index < 0 or index >= len(sessions):
+        return None
+    return sessions[index]
+
+
+def clone_session_for_review(source_session, status=SESSION_STATUS_REVIEW, state=BOT_STATE_REVIEW):
+    if not supabase or not source_session:
+        return None
+
+    invoice = copy.deepcopy(get_session_invoice(source_session))
+    return create_invoice_session(
+        source_session["chat_id"],
+        get_session_mode(source_session),
+        invoice=invoice,
+        queue=[],
+        status=status,
+        state=state,
+    )
+
+
+def restore_archived_session_for_edit(session):
+    if not supabase or not session:
+        return None
+
+    invoice = copy.deepcopy(get_session_invoice(session))
+    queue = build_json_followup_queue(invoice)
+    session_data = dict(session.get("session_data") or {})
+    session_data["mode"] = get_session_mode(session)
+    session_data["invoice"] = ensure_invoice_shape(invoice)
+    session_data["queue"] = queue
+    return persist_session(
+        session,
+        session_data=session_data,
+        status=SESSION_STATUS_COLLECTING,
+        state=BOT_STATE_COLLECTING,
+        archived_at=None,
+    )
+
+
 def create_invoice_session(chat_id, mode, invoice=None, queue=None, status=SESSION_STATUS_COLLECTING, state=BOT_STATE_COLLECTING):
     if not supabase:
         return None
@@ -311,6 +424,18 @@ def set_session_archived(session):
         state=BOT_STATE_IDLE,
         archived_at=now_iso(),
     )
+
+
+def delete_session(session):
+    if not supabase or not session:
+        return False
+
+    try:
+        supabase.table("invoice_sessions").delete().eq("id", session["id"]).execute()
+        return True
+    except Exception as e:
+        logger.error("Session delete error: %s", e)
+        return False
 
 
 def extract_edit_command(text):
@@ -442,7 +567,8 @@ def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source
     if notify_telegram and chat_id:
         send_telegram_document(chat_id, output_path)
         if public_url:
-            send_telegram_message(chat_id, f"Stored link: {public_url}")
+            ALL_STORED_PDF = os.getenv("ALL_STORED_PDF") or "Missing Env Variable"
+            send_telegram_message(chat_id, f"All Stored link: {ALL_STORED_PDF}")
 
     return {
         "invoice_no": invoice_id,
