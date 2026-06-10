@@ -412,11 +412,11 @@ def format_session_summary(session):
     invoice = get_session_invoice(session)
     lines = [build_review_summary(invoice), ""]
     if session.get("status") == SESSION_STATUS_COMPLETED:
-        lines.append(f"Completed at: {escape(format_session_timestamp(session.get('completed_at')))}")
-        lines.append(f"Generated invoice id: {escape(str(session.get('generated_invoice_id') or 'no data'))}")
+        lines.append(f"<b>Completed at: {escape(format_session_timestamp(session.get('completed_at')))}</b>")
+        lines.append(f"<b>Generated invoice id: {escape(str(session.get('generated_invoice_id') or 'no data'))}</b>")
     elif session.get("status") == SESSION_STATUS_ARCHIVED:
-        lines.append(f"Archived at: {escape(format_session_timestamp(session.get('archived_at')))}")
-    lines.append(f"Session id: {escape(str(session.get('id') or 'no data'))}")
+        lines.append(f"<b>Archived at: {escape(format_session_timestamp(session.get('archived_at')))}</b>")
+    # lines.append(f"Session id: {escape(str(session.get('id') or 'no data'))}") # No use for user. Only useful in tracing through DB
     return "\n".join(lines)
 
 

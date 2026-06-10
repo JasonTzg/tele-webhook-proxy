@@ -146,15 +146,14 @@ def send_completed_list(chat_id):
     update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_SELECTION, {"kind": "completed"})
     lines = [
         "Latest completed invoices:",
-        "Reply with a number from 1 to 10.",
-        "",
         "<pre>",
         f"{'No.':>2}  {'Attn':10}  {'Tel':10}  {'Date':16}",
-        "-" * 48,
+        "-" * 48
     ]
     for index, session in enumerate(sessions, start=1):
         lines.append(format_session_list_item(session, index))
     lines.append("</pre>")
+    lines.append("Reply with a number from 1 to 10 to select an invoice, or send /cancel to cancel.")
     send_telegram_message(chat_id, "\n".join(lines), "HTML")
 
 
@@ -168,36 +167,30 @@ def send_archived_list(chat_id):
     update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_SELECTION, {"kind": "archived"})
     lines = [
         "Latest archived invoices:",
-        "Reply with a number from 1 to 10.",
-        "",
         "<pre>",
         f"{'No.':>2}  {'Attn':10}  {'Tel':10}  {'Date':16}",
-        "-" * 48,
+        "-" * 48
     ]
     for index, session in enumerate(sessions, start=1):
         lines.append(format_session_list_item(session, index))
     lines.append("</pre>")
+    lines.append("Reply with a number from 1 to 10 to select an invoice, or send /cancel to cancel.")
     send_telegram_message(chat_id, "\n".join(lines), "HTML")
 
 
 def send_completed_action_summary(chat_id, session):
     update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_ACTION, {"kind": "completed", "session_id": session.get("id")})
-    # dont show Session ID
-    session = {k: v for k, v in session.items() if k != "id"}
-    # bold for session 
     send_telegram_message(
         chat_id,
-        "<b>" + format_session_summary(session) + "</b>\n\n1. Re-generate PDF\n2. Modify and re-generate\n\nReply with 1 or 2, or /cancel.",
+        format_session_summary(session) + "\n\n1. Re-generate PDF\n2. Modify and re-generate\n\nReply with 1 or 2, or /cancel.",
     )
 
 
 def send_archived_action_summary(chat_id, session):
     update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_ACTION, {"kind": "archived", "session_id": session.get("id")})
-    # dont show Session ID
-    session = {k: v for k, v in session.items() if k != "id"}
     send_telegram_message(
         chat_id,
-        "<b>" + format_session_summary(session) + "</b>\n\n1. Delete\n2. Continue to edit\n\nReply with 1 or 2, or /cancel.",
+        format_session_summary(session) + "\n\n1. Delete\n2. Continue to edit\n\nReply with 1 or 2, or /cancel.",
     )
 
 
@@ -205,7 +198,7 @@ def send_archived_delete_confirm(chat_id, session):
     update_bot_state(chat_id, BOT_STATE_WAITING_DELETE_CONFIRM, {"session_id": session.get("id")})
     send_telegram_message(
         chat_id,
-        "<b>" + format_session_summary(session) + "</b>\n\n1. Confirm delete\n2. Back\n\nReply with 1 or 2, or /cancel.",
+        format_session_summary(session) + "\n\n1. Confirm delete\n2. Back\n\nReply with 1 or 2, or /cancel.",
     )
 
 
