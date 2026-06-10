@@ -637,20 +637,6 @@ def reserve_invoice_record(chat_id, attention):
     return response.data[0] if response.data else None
 
 
-def get_invoice_record(record_id):
-    if not supabase or not record_id:
-        return None
-
-    response = (
-        supabase.table("generated_invoices")
-        .select("*")
-        .eq("id", record_id)
-        .limit(1)
-        .execute()
-    )
-    return response.data[0] if response.data else None
-
-
 def finalize_invoice_record(record_id, file_name, public_url):
     if not supabase or not record_id:
         return
@@ -662,34 +648,35 @@ def finalize_invoice_record(record_id, file_name, public_url):
         }
     ).eq("id", record_id).execute()
 
+def invoice_data_exists(file_name, chat_id=None):
+    if not supabase or not file_name:
+        return None
 
-def generate_and_store_invoice(
-    invoice_data,
-    chat_id=None,
-    username=None,
-    source="local",
-    notify_telegram=False,
-    invoice_session=None,
-):
+    response = (
+        supabase.table("webhook_events")
+        .select("*")
+        .eq("event_type", "invoice_generated")
+        .eq("chat_id", chat_id)
+        .eq("summary", f"Generated {file_name}")
+        .limit(1)
+        .execute()
+    )
+
+    return_exists = bool(response.data and len(response.data) > 0)
+    return return_exists
+
+def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source="local", notify_telegram=False):
     invoice_data = ensure_invoice_shape(invoice_data)
     attention = invoice_data.get("attn", "unknown")
-    record = None
-    if invoice_session and invoice_session.get("generated_invoice_id"):
-        record = get_invoice_record(invoice_session.get("generated_invoice_id"))
-
-    if not record:
-        record = reserve_invoice_record(chat_id, attention)
-        if invoice_session and record and record.get("id") is not None:
-            persist_session(invoice_session, generated_invoice_id=record["id"])
-
+    record = reserve_invoice_record(chat_id, attention)
     invoice_id = str(record["id"]) if record and record.get("id") is not None else "00000"
 
     invoice_data = dict(invoice_data)
     invoice_data["invoice_no"] = invoice_id
 
     attn_slug = "".join(ch for ch in str(attention) if ch.isalnum())
-    record_file_path = record.get("file_path") if record else None
-    file_name = record_file_path or f"invoice-{attn_slug}-{invoice_id}.pdf"
+    datestamp = datetime.now().strftime("%d%m%y")
+    file_name = f"invoice {invoice_id}_{attn_slug}-{datestamp}.pdf"
     output_path = os.path.join("/tmp", file_name) if os.name != "nt" else file_name
 
     generate_invoice_pdf(invoice_data, output_path)
@@ -699,14 +686,8 @@ def generate_and_store_invoice(
     logger.info("Generated PDF saved to %s", output_path)
 
     public_url = ""
-    if record and record.get("public_url"):
-        public_url = record.get("public_url") or ""
-    elif record_file_path and supabase:
-        public_url = supabase.storage.from_("invoices").get_public_url(record_file_path)
-
-    should_upload = not record or not (record_file_path or public_url)
-
-    if supabase and should_upload:
+    # Only upload if we have a valid chat_id and the same invoice data has not been uploaded before (prevents duplicates from retries)
+    if supabase and not invoice_data_exists(file_name, chat_id):
         try:
             with open(output_path, "rb") as f:
                 supabase.storage.from_("invoices").upload(file_name, f)
