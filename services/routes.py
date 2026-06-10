@@ -509,6 +509,7 @@ def handle_callback_query(update):
                 username=username,
                 source="telegram",
                 notify_telegram=True,
+                invoice_session=session,
             )
             complete_session_generation(session, result)
             update_bot_state(chat_id, BOT_STATE_IDLE)

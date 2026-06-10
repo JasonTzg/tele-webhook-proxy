@@ -56,7 +56,7 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     invoice_date_str = invoice_data.get('invoice_date', '')
     try:
         invoice_date = datetime.strptime(invoice_date_str, "%Y-%m-%d")
-        invoice_data['invoice_date'] = invoice_date.strftime("%d %B %Y")
+        invoice_data['invoice_date'] = str(invoice_date.strftime("%d %B %Y"))
     except Exception as e:
         logger.error(f"Error parsing invoice_date: {e}. Using original string.")
         invoice_data['invoice_date'] = invoice_date_str

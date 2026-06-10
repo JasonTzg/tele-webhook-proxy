@@ -102,7 +102,7 @@ def extract_address_fields(raw_data):
 
 def normalize_invoice_date(value):
     if is_blank(value) or str(value).strip() == ".":
-        return datetime.utcnow().strftime("%d/%b/%Y")
+        return datetime.utcnow().strftime("%d %b %Y")
     return safe_text_value(value)
 
 
@@ -637,6 +637,20 @@ def reserve_invoice_record(chat_id, attention):
     return response.data[0] if response.data else None
 
 
+def get_invoice_record(record_id):
+    if not supabase or not record_id:
+        return None
+
+    response = (
+        supabase.table("generated_invoices")
+        .select("*")
+        .eq("id", record_id)
+        .limit(1)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
 def finalize_invoice_record(record_id, file_name, public_url):
     if not supabase or not record_id:
         return
@@ -649,18 +663,33 @@ def finalize_invoice_record(record_id, file_name, public_url):
     ).eq("id", record_id).execute()
 
 
-def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source="local", notify_telegram=False):
+def generate_and_store_invoice(
+    invoice_data,
+    chat_id=None,
+    username=None,
+    source="local",
+    notify_telegram=False,
+    invoice_session=None,
+):
     invoice_data = ensure_invoice_shape(invoice_data)
     attention = invoice_data.get("attn", "unknown")
-    record = reserve_invoice_record(chat_id, attention)
+    record = None
+    if invoice_session and invoice_session.get("generated_invoice_id"):
+        record = get_invoice_record(invoice_session.get("generated_invoice_id"))
+
+    if not record:
+        record = reserve_invoice_record(chat_id, attention)
+        if invoice_session and record and record.get("id") is not None:
+            persist_session(invoice_session, generated_invoice_id=record["id"])
+
     invoice_id = str(record["id"]) if record and record.get("id") is not None else "00000"
 
     invoice_data = dict(invoice_data)
     invoice_data["invoice_no"] = invoice_id
 
     attn_slug = "".join(ch for ch in str(attention) if ch.isalnum())
-    timestamp = datetime.now().strftime("%d%m%y-%H%M")
-    file_name = f"invoice-{attn_slug}-{timestamp}.pdf"
+    record_file_path = record.get("file_path") if record else None
+    file_name = record_file_path or f"invoice-{attn_slug}-{invoice_id}.pdf"
     output_path = os.path.join("/tmp", file_name) if os.name != "nt" else file_name
 
     generate_invoice_pdf(invoice_data, output_path)
@@ -670,7 +699,14 @@ def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source
     logger.info("Generated PDF saved to %s", output_path)
 
     public_url = ""
-    if supabase:
+    if record and record.get("public_url"):
+        public_url = record.get("public_url") or ""
+    elif record_file_path and supabase:
+        public_url = supabase.storage.from_("invoices").get_public_url(record_file_path)
+
+    should_upload = not record or not (record_file_path or public_url)
+
+    if supabase and should_upload:
         try:
             with open(output_path, "rb") as f:
                 supabase.storage.from_("invoices").upload(file_name, f)
