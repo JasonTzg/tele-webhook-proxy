@@ -51,15 +51,6 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     company_address_line1 = os.getenv('company_address_line1', 'Your Company Address Line 1')
     company_address_line2 = os.getenv('company_address_line2', 'Your Company Address Line 2')
     company_address_line3 = os.getenv('company_address_line3', 'Your Company Address Line 3')
-    
-    # convert invoice_data .invoice_date from YYYY-MM-DD to DD MMMMMMMMMM YYYY e.g. 2026-06-10 to 10 June 2026
-    invoice_date_str = invoice_data.get('invoice_date', '')
-    try:
-        invoice_date = datetime.strptime(invoice_date_str, "%Y %m %d")
-        invoice_data['invoice_date'] = str(invoice_date.strftime("%d %B %Y"))
-    except Exception as e:
-        logger.error(f"Error parsing invoice_date: {e}. Using original string.")
-        invoice_data['invoice_date'] = invoice_date_str
 
     # Render HTML
     html_out = template.render(
