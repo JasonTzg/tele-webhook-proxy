@@ -221,8 +221,12 @@
 							<td>{{ loop.index }}</td>
 							<td>
 								<span class="item-title">{{ item.description | default('') }}</span>
-								<div class="item-meta">Material: {{ item.material | default('') }}</div>
-								<div class="item-meta">Size: {{ item.size | default('') }}</div>
+								{% if item.material %}
+									<div class="item-meta">Material: {{ item.material }}</div>
+								{% endif %}
+								{% if item.size %}
+									<div class="item-meta">Size: {{ item.size }}</div>
+								{% endif %}
 								{% if item.remarks %}
 									<div class="item-meta">Remarks: {{ item.remarks }}</div>
 								{% endif %}

@@ -109,8 +109,8 @@ def normalize_invoice_date(value):
 def normalize_item(raw_item):
     aliases = {
         "description": ["description", "descriptions", "product name", "product", "name"],
-        "material": ["material", "materials"],
-        "size": ["size", "sizes", "sizing", "sizings"],
+        "material": ["material", "materials", "type", "types"],
+        "size": ["size", "sizes", "sizing", "sizings", "dimension", "dimensions"],
         "remarks": ["remark", "remarks", "note", "notes"],
         "qty": ["qty", "quantity"],
         "unit_price": ["unit price", "unit_price", "price", "unitprice"],
@@ -124,7 +124,11 @@ def normalize_item(raw_item):
                     value = candidate
                     break
         normalized[target_field] = safe_text_value(value)
-    if is_blank(normalized.get("remarks")):
+    if normalized.get("material") == "." or is_blank(normalized.get("material")):
+        normalized["material"] = ""
+    if normalized.get("size") == "." or is_blank(normalized.get("size")):
+        normalized["size"] = ""
+    if normalized.get("remarks") == "." or is_blank(normalized.get("remarks")):
         normalized["remarks"] = ""
     return normalized
 
@@ -149,9 +153,109 @@ def normalize_invoice_payload(raw_data):
     invoice["invoice_date"] = normalize_invoice_date(find_matching_value(raw_data, ["invoice date", "date"]))
     billing_address, delivery_address = extract_address_fields(raw_data)
     invoice["billing_address"] = safe_text_value(billing_address)
-    invoice["delivery_address"] = safe_text_value(delivery_address)
+    delivery_text = safe_text_value(delivery_address)
+    if delivery_text == "." and not is_blank(invoice["billing_address"]):
+        delivery_text = invoice["billing_address"]
+    invoice["delivery_address"] = delivery_text
     invoice["items"] = normalize_items(raw_data)
     return invoice
+
+
+def normalize_label(value):
+    return re.sub(r"\s+", " ", str(value or "").strip().lower().replace("_", " "))
+
+
+def label_matches(label, aliases):
+    normalized_label = normalize_label(label)
+    for alias in aliases:
+        normalized_alias = normalize_label(alias)
+        if normalized_label == normalized_alias or normalized_alias in normalized_label:
+            return True
+    return False
+
+
+def parse_plain_text_invoice_payload(text):
+    top_level_aliases = {
+        "attn": ["attn", "attention", "client name", "client", "name"],
+        "tel": ["tel", "number", "client number", "customer number", "telephone", "phone"],
+        "invoice_date": ["invoice date", "date"],
+        "billing_address": ["billing address", "billing"],
+        "delivery_address": ["delivery address", "delivery"],
+    }
+    item_aliases = {
+        "description": ["description", "product name", "product", "name"],
+        "material": ["material", "materials", "type", "types"],
+        "size": ["size", "sizes", "sizing", "sizings", "dimension", "dimensions"],
+        "remarks": ["remark", "remarks", "note", "notes"],
+        "unit_price": ["unit price", "unit_price", "price", "unitprice"],
+        "qty": ["qty", "quantity"],
+    }
+
+    invoice = default_invoice_payload()
+    raw_top_level = {}
+    items = []
+    current_section = None
+    current_field = None
+    current_lines = []
+    current_item = {}
+
+    def commit_current_field():
+        nonlocal current_field, current_lines, current_section, current_item
+        if not current_field:
+            return
+
+        value = "\n".join(current_lines).strip()
+        if current_section == "top":
+            raw_top_level[current_field] = value
+        elif current_section == "item":
+            if current_field == "description" and current_item and any(not is_blank(existing) for existing in current_item.values()):
+                items.append(current_item)
+                current_item = {}
+            current_item[current_field] = value
+
+        current_field = None
+        current_lines = []
+
+    for raw_line in (text or "").splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+
+        if not stripped:
+            if current_field:
+                current_lines.append("")
+            continue
+
+        match = re.match(r"^(?:\d+\.\s*)?([A-Za-z_ ]+?)(?:\s*\(.*\))?\s*:\s*(.*)$", stripped)
+        if match:
+            commit_current_field()
+            label = match.group(1)
+            value = match.group(2).strip()
+
+            matched_top_level = next((field_name for field_name, aliases in top_level_aliases.items() if label_matches(label, aliases)), None)
+            matched_item_field = next((field_name for field_name, aliases in item_aliases.items() if label_matches(label, aliases)), None)
+
+            if matched_top_level:
+                current_section = "top"
+                current_field = matched_top_level
+                current_lines = [value] if value else []
+                continue
+
+            if matched_item_field:
+                current_section = "item"
+                current_field = matched_item_field
+                current_lines = [value] if value else []
+                continue
+
+        if current_field:
+            current_lines.append(line)
+
+    commit_current_field()
+
+    if current_item and any(not is_blank(existing) for existing in current_item.values()):
+        items.append(current_item)
+
+    raw_top_level["items"] = items
+    return normalize_invoice_payload(raw_top_level)
 
 
 def build_guided_queue():
@@ -179,9 +283,8 @@ def build_json_followup_queue(invoice):
 
     for index, item in enumerate(items):
         for field_name, prompt in ITEM_PROMPTS:
-            if field_name == "remarks":
-                if is_blank(item.get(field_name)):
-                    queue.append({"type": "item", "index": index, "name": field_name, "prompt": prompt})
+            if field_name in {"material", "size", "remarks"}:
+                # Optional item fields are never required follow-ups.
                 continue
             if is_blank(item.get(field_name)):
                 queue.append({"type": "item", "index": index, "name": field_name, "prompt": prompt})
@@ -275,12 +378,34 @@ def format_session_timestamp(value):
         return text_value
 
 
+def format_session_list_timestamp(value):
+    if is_blank(value):
+        return "no data"
+    text_value = str(value)
+    try:
+        parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+        return parsed.strftime("%d %b %Y %H:%M")
+    except Exception:
+        return text_value
+
+
+def truncate_with_ellipsis(value, max_length):
+    text_value = safe_text_value(value)
+    if len(text_value) <= max_length:
+        return text_value
+    if max_length <= 3:
+        return text_value[:max_length]
+    return text_value[: max_length - 3].rstrip() + "..."
+
+
 def format_session_list_item(session, index):
     invoice = get_session_invoice(session)
-    attn = safe_text_value(invoice.get("attn")) or "no data"
+    attn = truncate_with_ellipsis(invoice.get("attn") or "no data", 10)
     tel = safe_text_value(invoice.get("tel")) or "no data"
-    timestamp = format_session_timestamp(session.get("completed_at") or session.get("archived_at") or session.get("updated_at"))
-    return f"{index}. {attn} | {tel} | {timestamp}"
+    timestamp = format_session_list_timestamp(
+        session.get("completed_at") or session.get("archived_at") or session.get("updated_at")
+    )
+    return f"{index:>2}  {escape(attn):<10}  {escape(tel):<10}  {escape(timestamp)}"
 
 
 def format_session_summary(session):
@@ -481,7 +606,7 @@ def apply_edit_to_invoice(invoice, edit):
             while len(invoice["items"]) <= index:
                 invoice["items"].append({})
             if field in ITEM_EDITABLE_FIELDS:
-                if field == "remarks" and value == ".":
+                if field in {"material", "size", "remarks"} and value == ".":
                     value = ""
                 invoice["items"][index][field] = value
     return invoice
@@ -581,6 +706,13 @@ def generate_and_store_invoice(invoice_data, chat_id=None, username=None, source
 
 def build_review_summary(invoice):
     invoice = ensure_invoice_shape(invoice)
+
+    def format_cell(value, width):
+        text = safe_text_value(value)
+        if len(text) > width:
+            text = text[: max(0, width - 3)] + "..."
+        return escape(text)
+
     lines = [
         "Invoice draft ready. Review the details below:",
         "",
@@ -591,9 +723,13 @@ def build_review_summary(invoice):
         f"Delivery address: {escape(str(invoice.get('delivery_address', '')))}",
         "",
         "Items:",
+        "<pre>",
+        f"{'#':>2}  {'DESCRIPTION':<24}  {'MATERIAL':<24}  {'SIZE':<22}  {'QTY':>5}  {'PRICE':<12}  {'REMARKS':<20}",
+        "-" * 125,
     ]
     for idx, item in enumerate(invoice.get("items", []), start=1):
         lines.append(
-            f"{idx}. {escape(str(item.get('description', '')))} | {escape(str(item.get('material', '')))} | {escape(str(item.get('size', '')))} | qty {escape(str(item.get('qty', '')))} | price {escape(str(item.get('unit_price', '')))} | remarks {escape(str(item.get('remarks', '')))}"
+            f"{idx:>2}  {format_cell(item.get('description', ''), 24):<24}  {format_cell(item.get('material', ''), 24):<24}  {format_cell(item.get('size', ''), 22):<22}  {format_cell(item.get('qty', ''), 5):>5}  {format_cell(item.get('unit_price', ''), 12):<12}  {format_cell(item.get('remarks', ''), 20):<20}"
         )
+    lines.append("</pre>")
     return "\n".join(lines)

@@ -1,5 +1,3 @@
-import json
-
 from flask import jsonify, request
 from html import escape
 
@@ -7,6 +5,7 @@ from services.common import (
     BOT_STATE_COLLECTING,
     BOT_STATE_IDLE,
     BOT_STATE_REVIEW,
+    decrypt_encrypted_asset,
     BOT_STATE_WAITING_CANCEL,
     BOT_STATE_WAITING_DELETE_CONFIRM,
     BOT_STATE_WAITING_SESSION_ACTION,
@@ -30,6 +29,7 @@ from services.common import (
     log_event_to_db,
     now_iso,
     send_telegram_message,
+    send_telegram_photo,
     supabase,
     get_bot_state_data,
     update_bot_state,
@@ -56,6 +56,7 @@ from services.invoice_logic import (
     clone_session_for_review,
     format_session_list_item,
     format_session_summary,
+    parse_plain_text_invoice_payload,
     restore_archived_session_for_edit,
     persist_session,
     set_session_archived,
@@ -64,16 +65,43 @@ from services.invoice_logic import (
 )
 
 
+def build_all_at_once_prompt():
+    return (
+        "Paste the completed template below, then send it back in one message:\n\n"
+        "1. Attn:\n"
+        "2. Tel:\n"
+        "3. Invoice Date (Put . for Current Date):\n"
+        "4. Billing Address:\n"
+        "5. Delivery Address (Put . if same as 4.):\n"
+        "6. Items (You can put multiple sets below. Just duplicate the next set of item below each item):\n"
+        "Description:\n"
+        "Material (Put . to leave it blank):\n"
+        "Size (Put . to leave it blank):\n"
+        "Remarks (Put . to leave it blank):\n"
+        "Unit_price:\n"
+        "Qty:\n"
+    )
+
+
+def send_reference_image(chat_id, asset_name, caption):
+    image_bytes = decrypt_encrypted_asset(asset_name)
+    if not image_bytes:
+        return False
+
+    send_telegram_photo(chat_id, image_bytes, asset_name.replace(".enc", ".png"), caption=caption)
+    return True
+
+
 def send_mode_selection(chat_id):
     reply_markup = build_inline_keyboard(
         [
             [
-                {"text": "1) Send JSON data", "callback_data": MODE_JSON_CALLBACK},
+                {"text": "1) Send All at Once", "callback_data": MODE_JSON_CALLBACK},
                 {"text": "2) Send data 1 by 1", "callback_data": MODE_GUIDED_CALLBACK},
             ]
         ]
     )
-    send_telegram_message(chat_id, "Choose how you want to send invoice details:", reply_markup=reply_markup)
+    send_telegram_message(chat_id, "Choose how you want to send invoice details: \n Preferred 1) for Desktop, 2) for Mobile.", reply_markup=reply_markup)
 
 
 def send_review_prompt(chat_id, session):
@@ -116,10 +144,18 @@ def send_completed_list(chat_id):
         return
 
     update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_SELECTION, {"kind": "completed"})
-    lines = ["Latest completed invoices:", "Reply with a number from 1 to 10.", ""]
+    lines = [
+        "Latest completed invoices:",
+        "Reply with a number from 1 to 10.",
+        "",
+        "<pre>",
+        f"{'No.':>2}  {'Attn':10}  {'Tel':10}  {'Date':16}",
+        "-" * 48,
+    ]
     for index, session in enumerate(sessions, start=1):
         lines.append(format_session_list_item(session, index))
-    send_telegram_message(chat_id, "\n".join(lines))
+    lines.append("</pre>")
+    send_telegram_message(chat_id, "\n".join(lines), "HTML")
 
 
 def send_archived_list(chat_id):
@@ -130,25 +166,38 @@ def send_archived_list(chat_id):
         return
 
     update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_SELECTION, {"kind": "archived"})
-    lines = ["Latest archived invoices:", "Reply with a number from 1 to 10.", ""]
+    lines = [
+        "Latest archived invoices:",
+        "Reply with a number from 1 to 10.",
+        "",
+        "<pre>",
+        f"{'No.':>2}  {'Attn':10}  {'Tel':10}  {'Date':16}",
+        "-" * 48,
+    ]
     for index, session in enumerate(sessions, start=1):
         lines.append(format_session_list_item(session, index))
-    send_telegram_message(chat_id, "\n".join(lines))
+    lines.append("</pre>")
+    send_telegram_message(chat_id, "\n".join(lines), "HTML")
 
 
 def send_completed_action_summary(chat_id, session):
     update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_ACTION, {"kind": "completed", "session_id": session.get("id")})
+    # dont show Session ID
+    session = {k: v for k, v in session.items() if k != "id"}
+    # bold for session 
     send_telegram_message(
         chat_id,
-        format_session_summary(session) + "\n\n1. Re-generate PDF\n2. Modify and re-generate\n\nReply with 1 or 2.",
+        "<b>" + format_session_summary(session) + "</b>\n\n1. Re-generate PDF\n2. Modify and re-generate\n\nReply with 1 or 2, or /cancel.",
     )
 
 
 def send_archived_action_summary(chat_id, session):
     update_bot_state(chat_id, BOT_STATE_WAITING_SESSION_ACTION, {"kind": "archived", "session_id": session.get("id")})
+    # dont show Session ID
+    session = {k: v for k, v in session.items() if k != "id"}
     send_telegram_message(
         chat_id,
-        format_session_summary(session) + "\n\n1. Delete\n2. Continue to edit\n\nReply with 1 or 2.",
+        "<b>" + format_session_summary(session) + "</b>\n\n1. Delete\n2. Continue to edit\n\nReply with 1 or 2, or /cancel.",
     )
 
 
@@ -156,7 +205,7 @@ def send_archived_delete_confirm(chat_id, session):
     update_bot_state(chat_id, BOT_STATE_WAITING_DELETE_CONFIRM, {"session_id": session.get("id")})
     send_telegram_message(
         chat_id,
-        format_session_summary(session) + "\n\n1. Confirm delete\n2. Back\n\nReply with 1 or 2.",
+        "<b>" + format_session_summary(session) + "</b>\n\n1. Confirm delete\n2. Back\n\nReply with 1 or 2, or /cancel.",
     )
 
 
@@ -278,6 +327,13 @@ def send_next_queue_prompt(chat_id, session):
     if not queue:
         send_review_prompt(chat_id, session)
         return
+
+    current_prompt = queue[0]
+    if current_prompt.get("name") == "attn":
+        send_reference_image(chat_id, "client_company_section.enc", "Client company section reference.")
+    elif current_prompt.get("name") == "items_count":
+        send_reference_image(chat_id, "items_section.enc", "Items section reference.")
+
     send_telegram_message(chat_id, queue[0]["prompt"])
 
 
@@ -351,7 +407,7 @@ def handle_guided_answer(chat_id, session, text):
         while len(invoice["items"]) <= index:
             invoice["items"].append({})
         field_name = current["name"]
-        if field_name == "remarks" and value == ".":
+        if field_name in {"material", "size", "remarks"} and value == ".":
             value = ""
         invoice["items"][index][field_name] = value
 
@@ -364,23 +420,15 @@ def handle_guided_answer(chat_id, session, text):
 
 
 def process_json_invoice_input(chat_id, session, text):
-    try:
-        raw_invoice = json.loads(text)
-    except json.JSONDecodeError:
-        send_telegram_message(chat_id, "Invalid JSON format. Please send valid JSON or type /cancel to choose archive or discard.")
+    invoice = parse_plain_text_invoice_payload(text)
+    if not invoice.get("items"):
+        send_telegram_message(
+            chat_id,
+            "I could not find any item blocks yet. Please paste the filled-in template again and include at least one item set.",
+        )
         return
-
-    from services.invoice_logic import normalize_invoice_payload
-
-    invoice = normalize_invoice_payload(raw_invoice)
-    queue = build_json_followup_queue(invoice)
-    set_session_invoice(session, invoice, queue=queue, status=SESSION_STATUS_COLLECTING, state=BOT_STATE_COLLECTING)
-
-    if queue:
-        send_telegram_message(chat_id, "JSON received. I still need a few missing fields before I can generate the PDF.")
-        send_next_queue_prompt(chat_id, session)
-    else:
-        send_review_prompt(chat_id, session)
+    set_session_invoice(session, invoice, queue=[], status=SESSION_STATUS_REVIEW, state=BOT_STATE_REVIEW)
+    send_review_prompt(chat_id, session)
 
 
 def complete_session_generation(session, result):
@@ -407,19 +455,21 @@ def handle_callback_query(update):
         return True
 
     if callback_data == MODE_JSON_CALLBACK:
-        answer_telegram_callback(callback_id, "JSON mode selected")
+        answer_telegram_callback(callback_id, "Send all at once selected")
         session = create_invoice_session(
             chat_id,
             MODE_JSON,
             invoice=default_invoice_payload(),
-            queue=[{"type": "field", "name": "json_payload", "prompt": "Send the invoice JSON data now."}],
+            queue=[{"type": "field", "name": "all_at_once_payload", "prompt": build_all_at_once_prompt()}],
             status=SESSION_STATUS_COLLECTING,
             state=BOT_STATE_COLLECTING,
         )
         update_bot_state(chat_id, BOT_STATE_COLLECTING)
-        send_telegram_message(chat_id, "Send your invoice JSON. I will extract the fields and keep asking until everything is complete.")
+        send_reference_image(chat_id, "client_company_section.enc", "Client company section reference.")
+        send_reference_image(chat_id, "items_section.enc", "Items section reference.")
+        send_telegram_message(chat_id, build_all_at_once_prompt())
         if not session:
-            logger.warning("Failed to create JSON invoice session for chat %s", chat_id)
+            logger.warning("Failed to create all-at-once invoice session for chat %s", chat_id)
         return True
 
     if callback_data == MODE_GUIDED_CALLBACK:
@@ -434,6 +484,7 @@ def handle_callback_query(update):
         )
         update_bot_state(chat_id, BOT_STATE_COLLECTING)
         if session:
+            send_reference_image(chat_id, "client_company_section.enc", "Client company section reference.")
             send_next_queue_prompt(chat_id, session)
         else:
             logger.warning("Failed to create guided invoice session for chat %s", chat_id)
@@ -522,23 +573,6 @@ def register_routes(app):
             }
         )
 
-    @app.route("/local/generate", methods=["POST", "GET"])
-    def local_generate():
-        if request.method == "POST" and request.is_json:
-            invoice_data = request.get_json(silent=True) or {}
-        else:
-            invoice_data = load_sample_invoice()
-
-        result = generate_and_store_invoice(
-            invoice_data=invoice_data,
-            chat_id=None,
-            username="local",
-            source="local",
-            notify_telegram=False,
-        )
-
-        return jsonify({"ok": True, **result})
-
     @app.route("/webhook", methods=["POST"])
     def webhook():
         update = request.get_json(silent=True) or {}
@@ -622,19 +656,55 @@ def register_routes(app):
             update_bot_state(chat_id, BOT_STATE_WAITING_MODE)
             send_mode_selection(chat_id)
             if get_latest_completed_session(chat_id):
-                send_telegram_message(chat_id, "I kept your last completed invoice session on file, so you can reuse or regenerate it later.")
+                send_telegram_message(chat_id, "Completed invoice is in /completed. Re-generate or modify from there.")
             return "OK", 200
 
-        if text.startswith("/queue"):
+        if text.startswith("/activity"):
             if supabase:
+                from datetime import datetime
+                
                 res = supabase.table("webhook_events").select("*").limit(10).order("received_at", desc=True).execute()
                 events = res.data or []
-                lines = ["Recent Queue Activity:", "", "<pre>", f"{'SUMMARY':50} {'STATUS':10} {'USERNAME':20}", "-" * 80]
-                for idx, ev in enumerate(events, start=1):
-                    summary = escape(str(ev.get("summary", "")))
+                
+                lines = ["Recent Queue Activity:", "", "<pre>"]
+                lines.append(f"{'DATE':12}  {'ATTN':12}  {'COMMANDS/EVENTS':20}  {'STATUS':10}  {'BY':15}")
+                lines.append("-" * 80)
+                
+                for ev in events:
+                    # Parse date from received_at
+                    received_at_str = ev.get("received_at", "")
+                    try:
+                        dt = datetime.fromisoformat(received_at_str.replace('Z', '+00:00'))
+                        date_str = dt.strftime("%d %b %y")
+                    except:
+                        date_str = "???"
+                    
+                    # Parse summary to extract event info
+                    summary = str(ev.get("summary", ""))
+                    attn = ""
+                    event_desc = ""
+                    
+                    if summary.startswith("Generated invoice-"):
+                        event_desc = "Invoice Generated"
+                        # Extract client name from summary
+                        # Format: "Generated invoice-{client}-{date}.pdf"
+                        temp = summary.replace("Generated invoice-", "").replace(".pdf", "")
+                        parts = temp.split("-")
+                        if parts and parts[0]:
+                            client = parts[0]
+                            if len(client) > 10:
+                                attn = escape(client[:7]) + "..."
+                            else:
+                                attn = escape(client)
+                    else:
+                        event_desc = escape(summary)
+                        attn = ""
+                    
                     status = escape(str(ev.get("status", "")))
-                    event_username = escape(str(ev.get("username", "unknown")))
-                    lines.append(f"{idx}. {summary[:50]:50} {status[:10]:10} {event_username[:20]:20}")
+                    username = escape(str(ev.get("username", "unknown")))
+                    
+                    lines.append(f"{date_str:12}  {attn:12}  {event_desc:20}  {status:10}  {username:15}")
+                
                 lines.append("</pre>")
                 send_telegram_message(chat_id, "\n".join(lines), "HTML")
             else:
@@ -664,7 +734,7 @@ def register_routes(app):
                 send_review_prompt(chat_id, active_session)
                 return "OK", 200
 
-            if session_mode == MODE_JSON and queue and queue[0].get("name") == "json_payload":
+            if session_mode == MODE_JSON and queue and queue[0].get("name") == "all_at_once_payload":
                 process_json_invoice_input(chat_id, active_session, text)
                 return "OK", 200
 

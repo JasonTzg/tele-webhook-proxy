@@ -1,9 +1,11 @@
 import logging
+import io
 import os
 from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
+from cryptography.fernet import Fernet
 from supabase import Client, create_client
 
 load_dotenv()
@@ -58,8 +60,8 @@ TOP_LEVEL_PROMPTS = [
 
 ITEM_PROMPTS = [
     ("description", "Description/Product Name Selling?"),
-    ("material", "Material?"),
-    ("size", "Size?"),
+    ("material", "Material? Put . to leave it blank."),
+    ("size", "Size? Put . to leave it blank."),
     ("remarks", "Remarks? Put . to skip."),
     ("qty", "Qty?"),
     ("unit_price", "Unit Price?"),
@@ -126,6 +128,55 @@ def send_telegram_document(chat_id, file_path):
             data={"chat_id": chat_id},
             files={"document": handle},
         )
+
+
+def send_telegram_photo(chat_id, photo_bytes, filename, caption=None, parse_mode="HTML", reply_markup=None):
+    if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "your_telegram_bot_token_here":
+        logger.warning("Telegram Bot Token is missing.")
+        return
+
+    payload = {"chat_id": chat_id}
+    if caption is not None:
+        payload["caption"] = caption
+        payload["parse_mode"] = parse_mode
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
+    photo_handle = io.BytesIO(photo_bytes)
+    photo_handle.name = filename
+    requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto",
+        data=payload,
+        files={"photo": (filename, photo_handle, "image/png")},
+    )
+
+
+def decrypt_encrypted_asset(asset_filename):
+    fernet_key = (
+        os.getenv("FERNET_KEY")
+        or os.getenv("fernet_key")
+        or ""
+    ).strip().encode()
+
+    if not fernet_key:
+        logger.error("Missing Fernet key. Set FERNET_KEY or fernet_key in the environment.")
+        return None
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    asset_path = os.path.join(base_dir, "assets", asset_filename)
+
+    try:
+        with open(asset_path, "rb") as file:
+            encrypted_data = file.read()
+    except FileNotFoundError:
+        logger.error("Error: %s file not found in assets directory.", asset_filename)
+        return None
+
+    try:
+        return Fernet(fernet_key).decrypt(encrypted_data)
+    except Exception:
+        logger.exception("Error decrypting %s.", asset_filename)
+        return None
 
 
 def log_event_to_db(chat_id, username, event_type, summary, payload_json, status="success"):

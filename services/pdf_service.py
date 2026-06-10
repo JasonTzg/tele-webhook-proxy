@@ -22,7 +22,8 @@ def generate_invoice_pdf(invoice_data: dict, output_path: str):
     
     for item in items:
         qty = float(item.get('qty', 0))
-        unit_price = float(item.get('unit_price', 0))
+        # sansitize unit_price by removing SGD, $ and commas, then convert to float
+        unit_price = float(str(item.get('unit_price', '0')).replace("SGD", "").replace("$", "").replace(",", "").strip())
         amount = qty * unit_price
         item['amount'] = amount
         items_with_amounts.append(item)
